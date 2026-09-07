@@ -37,8 +37,20 @@ const SUITS = [
 ];
 
 const RANKS = [
-  "Ace","Two","Three","Four","Five","Six","Seven",
-  "Eight","Nine","Ten","Page","Knight","Queen","King",
+  "Ace",
+  "Two",
+  "Three",
+  "Four",
+  "Five",
+  "Six",
+  "Seven",
+  "Eight",
+  "Nine",
+  "Ten",
+  "Page",
+  "Knight",
+  "Queen",
+  "King",
 ];
 
 function buildCards() {
@@ -80,8 +92,106 @@ const DEEP_ROLES = Object.freeze([
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-headers": "content-type, range",
+  "access-control-expose-headers":
+    "content-length, content-range, accept-ranges",
 };
+
+const PRIVACY_POLICY_HTML = `<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TOKIYOMI タロット抽選API プライバシーポリシー</title>
+  <style>
+    body {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+      color: #26231f;
+      background: #faf8f3;
+      font-family: system-ui, sans-serif;
+      line-height: 1.8;
+    }
+    h1 {
+      font-size: 1.65rem;
+      line-height: 1.4;
+    }
+    h2 {
+      margin-top: 2rem;
+      font-size: 1.15rem;
+    }
+    a {
+      color: #795b22;
+    }
+    .updated {
+      color: #6b665e;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>TOKIYOMI タロット抽選API<br>プライバシーポリシー</h1>
+    <p class="updated">最終更新日：2026年9月8日</p>
+
+    <p>
+      本ポリシーは、カスタムGPT「時を詠む。TOKIYOMI（時詠）」が利用する
+      タロット抽選API（以下「本API」）に適用されます。
+    </p>
+
+    <h2>1．本APIが受け取る情報</h2>
+    <p>
+      本APIは、カード抽選に必要な条件
+      （体験版は3枚、深読み版は7枚、いずれも正位置・重複なし）
+      のみを受け取ります。
+      相談内容、氏名、メールアドレス、住所、決済情報などの個人情報を
+      本APIへ送信する設計にはなっていません。
+    </p>
+
+    <h2>2．利用目的</h2>
+    <p>
+      受け取った抽選条件は、78枚のタロットカードから、
+      体験版では3枚、深読み版では7枚を無作為かつ重複なしで選び、
+      カード名、表示順、役割、正位置の指定およびカード画像URLを
+      返すためにのみ使用します。
+    </p>
+
+    <h2>3．保存</h2>
+    <p>
+      本APIのアプリケーションコードは、
+      相談内容、抽選結果、利用者を識別する情報を
+      データベースへ保存しません。
+    </p>
+
+    <h2>4．外部サービス</h2>
+    <p>
+      本APIの提供にはCloudflareの基盤を使用し、
+      カード画像およびカード開示動画の配信元としてGitHubを使用しています。
+      カード開示ページは抽選済みカードを表示するための一時的な表示機能であり、
+      本APIは相談内容や抽選結果をデータベースへ保存しません。
+    </p>
+
+    <h2>5．Cookieおよび広告</h2>
+    <p>
+      本APIは、独自のCookie、広告配信または行動追跡機能を使用しません。
+    </p>
+
+    <h2>6．本ポリシーの変更</h2>
+    <p>
+      提供方法の変更などに応じて、本ポリシーを更新する場合があります。
+      更新内容はこのページで公開します。
+    </p>
+
+    <h2>7．お問い合わせ</h2>
+    <p>
+      <a href="https://github.com/TOKIYOMI-jpg/TOKIYOMI-tarot/issues">
+        TOKIYOMI-tarot GitHubリポジトリ
+      </a>
+      からお問い合わせください。
+    </p>
+  </main>
+</body>
+</html>`;
 
 function jsonResponse(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -90,6 +200,18 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
       "content-type": "application/json; charset=UTF-8",
       ...CORS_HEADERS,
       ...extraHeaders,
+    },
+  });
+}
+
+function privacyPolicyResponse(headOnly = false) {
+  return new Response(headOnly ? null : PRIVACY_POLICY_HTML, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=UTF-8",
+      "cache-control": "public, max-age=3600",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
     },
   });
 }
@@ -103,7 +225,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-async function handleMedia(pathname) {
+async function handleMedia(pathname, request) {
   const filename =
     pathname === "/media/first-card.mp4"
       ? "first-card.mp4"
@@ -115,25 +237,57 @@ async function handleMedia(pathname) {
     return jsonResponse({ error: "Not found" }, 404);
   }
 
-  const upstream = await fetch(VIDEO_SOURCE_BASE_URL + filename, {
-    cf: { cacheTtl: 3600, cacheEverything: true },
-  });
+  const upstreamHeaders = new Headers();
 
-  if (!upstream.ok || !upstream.body) {
+  const range = request.headers.get("range");
+
+  if (range) {
+    upstreamHeaders.set("range", range);
+  }
+
+  const upstream = await fetch(
+    VIDEO_SOURCE_BASE_URL + filename,
+    {
+      headers: upstreamHeaders,
+      redirect: "follow",
+      cf: {
+        cacheEverything: true,
+        cacheTtl: 3600,
+      },
+    }
+  );
+
+  if (!upstream.ok && upstream.status !== 206) {
     return jsonResponse(
-      { error: "Video source unavailable", filename },
-      502
+      {
+        error: "Video source unavailable",
+        filename,
+        status: upstream.status,
+      },
+      502,
+      { "cache-control": "no-store" }
     );
   }
 
   const headers = new Headers(upstream.headers);
+
   headers.set("content-type", "video/mp4");
+  headers.set("accept-ranges", "bytes");
   headers.set("cache-control", "public, max-age=3600");
-  headers.set("content-disposition", `inline; filename="${filename}"`);
   headers.set("access-control-allow-origin", "*");
+  headers.set(
+    "access-control-expose-headers",
+    "content-length, content-range, accept-ranges"
+  );
+  headers.set(
+    "content-disposition",
+    `inline; filename="${filename}"`
+  );
+
+  headers.delete("x-frame-options");
 
   return new Response(upstream.body, {
-    status: 200,
+    status: upstream.status,
     headers,
   });
 }
@@ -143,7 +297,12 @@ function revealPageResponse(url) {
   const position = Number(url.searchParams.get("position"));
   const card = CARDS[cardId];
 
-  if (!card || !Number.isInteger(position) || position < 1 || position > 7) {
+  if (
+    !card ||
+    !Number.isInteger(position) ||
+    position < 1 ||
+    position > 7
+  ) {
     return new Response("Invalid reveal parameters", {
       status: 400,
       headers: {
@@ -154,98 +313,260 @@ function revealPageResponse(url) {
 
   const imageUrl = IMAGE_BASE_URL + card[2];
 
+  const title =
+    `${position}枚目 - ${card[0]}`;
+
   const firstVideo =
-    position === 1 ? "/media/first-card.mp4" : null;
+    position === 1
+      ? "/media/first-card.mp4"
+      : null;
 
-  const nextVideo = "/media/next-card.mp4";
+  const nextVideo =
+    "/media/next-card.mp4";
 
-  const sequence = firstVideo
-    ? [firstVideo, nextVideo]
-    : [nextVideo];
+  const sequence =
+    firstVideo
+      ? [firstVideo, nextVideo]
+      : [nextVideo];
 
   const html = `<!doctype html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TOKIYOMI</title>
+
+<title>${escapeHtml(title)}</title>
+
 <style>
-:root{color-scheme:dark}
-*{box-sizing:border-box}
-body{margin:0;background:#05070a;color:#f4ead5;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center}
-main{width:min(100%,760px);padding:16px;text-align:center}
-.stage{position:relative;aspect-ratio:16/9;background:#000;border:1px solid #5c492b;overflow:hidden;border-radius:14px}
-video,.card{width:100%;height:100%;object-fit:contain;background:#000}
-.card{display:none;opacity:0;transition:opacity .8s ease}
-.card.show{display:block;opacity:1}
-.status{margin-top:12px;font-size:14px;opacity:.85}
-.start{margin-top:14px;padding:11px 18px;border-radius:999px;border:1px solid #8d7344;background:#17130d;color:#f4ead5;font-size:16px;cursor:pointer}
-.start[hidden]{display:none}
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: #05070a;
+    color: #f4ead5;
+    font-family: system-ui, sans-serif;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+  }
+
+  main {
+    width: min(100%, 760px);
+    padding: 16px;
+    text-align: center;
+  }
+
+  .stage {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border: 1px solid #5c492b;
+    overflow: hidden;
+    border-radius: 14px;
+  }
+
+  video,
+  .card {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+
+  .card {
+    display: none;
+    opacity: 0;
+    transition: opacity .8s ease;
+  }
+
+  .card.show {
+    display: block;
+    opacity: 1;
+  }
+
+  .status {
+    margin-top: 12px;
+    font-size: 14px;
+    opacity: .85;
+  }
+
+  .start {
+    margin-top: 14px;
+    padding: 11px 18px;
+    border-radius: 999px;
+    border: 1px solid #8d7344;
+    background: #17130d;
+    color: #f4ead5;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  .start[hidden] {
+    display: none;
+  }
 </style>
 </head>
-<body>
-<main>
-<div class="stage">
-<video id="ritual" muted playsinline preload="auto"></video>
-<img id="card" class="card" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(card[0])}">
-</div>
-<div id="status" class="status">カードを開示しています…</div>
-<button id="start" class="start" type="button" hidden>演出を開始</button>
-</main>
-<script>
-const sequence=${JSON.stringify(sequence)};
-let index=0;
-const video=document.getElementById("ritual");
-const card=document.getElementById("card");
-const status=document.getElementById("status");
-const start=document.getElementById("start");
 
-function reveal(){
-  video.style.display="none";
-  card.classList.add("show");
-  status.textContent=${JSON.stringify(`${position}枚目「${card[0]}」`)};
-  start.hidden=true;
+<body>
+
+<main>
+
+<div class="stage">
+
+<video
+  id="ritual"
+  muted
+  playsinline
+  preload="metadata">
+</video>
+
+<img
+  id="card"
+  class="card"
+  src="${escapeHtml(imageUrl)}"
+  alt="${escapeHtml(card[0])}">
+
+</div>
+
+<div
+  id="status"
+  class="status">
+カードを開示しています…
+</div>
+
+<button
+  id="start"
+  class="start"
+  type="button"
+  hidden>
+演出を開始
+</button>
+
+</main>
+
+<script>
+
+const sequence =
+  ${JSON.stringify(sequence)};
+
+let index = 0;
+
+const video =
+  document.getElementById("ritual");
+
+const card =
+  document.getElementById("card");
+
+const status =
+  document.getElementById("status");
+
+const start =
+  document.getElementById("start");
+
+function reveal() {
+
+  video.pause();
+
+  video.style.display =
+    "none";
+
+  card.classList.add(
+    "show"
+  );
+
+  status.textContent =
+    ${JSON.stringify(
+      `${position}枚目「${card[0]}」`
+    )};
+
+  start.hidden = true;
 }
 
-function playCurrent(){
-  if(index>=sequence.length){
+function playCurrent() {
+
+  if (
+    index >=
+    sequence.length
+  ) {
     reveal();
     return;
   }
 
-  video.src=sequence[index];
-  video.style.display="block";
+  video.pause();
+
+  video.removeAttribute(
+    "src"
+  );
+
+  video.load();
+
+  video.src =
+    sequence[index];
+
+  video.style.display =
+    "block";
+
+  video.load();
 
   video.play()
-    .then(()=>{start.hidden=true;})
-    .catch(()=>{
-      start.hidden=false;
-      status.textContent="演出を開始してください";
+    .then(() => {
+      start.hidden = true;
+    })
+    .catch(() => {
+      start.hidden = false;
+
+      status.textContent =
+        "演出を開始してください";
     });
 }
 
-video.addEventListener("ended",()=>{
-  index+=1;
-  playCurrent();
-});
+video.addEventListener(
+  "ended",
+  () => {
+    index += 1;
+    playCurrent();
+  }
+);
 
-video.addEventListener("error",()=>{
-  index+=1;
-  playCurrent();
-});
+video.addEventListener(
+  "error",
+  () => {
+    index += 1;
+    playCurrent();
+  }
+);
 
-start.addEventListener("click",playCurrent);
+start.addEventListener(
+  "click",
+  () => {
+    playCurrent();
+  }
+);
 
 playCurrent();
+
 </script>
+
 </body>
 </html>`;
 
   return new Response(html, {
     status: 200,
     headers: {
-      "content-type": "text/html; charset=UTF-8",
-      "cache-control": "no-store",
+      "content-type":
+        "text/html; charset=UTF-8",
+      "cache-control":
+        "no-store",
+      "x-content-type-options":
+        "nosniff",
+      "referrer-policy":
+        "no-referrer",
     },
   });
 }
@@ -257,203 +578,485 @@ function cardToResponse(id) {
     id,
     name_ja: card[0],
     name_en: card[1],
-    image_url: IMAGE_BASE_URL + card[2],
+    image_url:
+      IMAGE_BASE_URL + card[2],
   };
 }
 
 function secureRandomInt(maxExclusive) {
-  const range = 0x100000000;
-  const limit = range - (range % maxExclusive);
-  const buffer = new Uint32Array(1);
+  if (
+    !Number.isInteger(maxExclusive) ||
+    maxExclusive <= 0
+  ) {
+    throw new RangeError(
+      "maxExclusive must be a positive integer."
+    );
+  }
+
+  const range =
+    0x100000000;
+
+  const limit =
+    range -
+    (range % maxExclusive);
+
+  const buffer =
+    new Uint32Array(1);
 
   let value;
 
   do {
-    crypto.getRandomValues(buffer);
-    value = buffer[0];
-  } while (value >= limit);
+    crypto.getRandomValues(
+      buffer
+    );
 
-  return value % maxExclusive;
+    value =
+      buffer[0];
+
+  } while (
+    value >= limit
+  );
+
+  return (
+    value %
+    maxExclusive
+  );
 }
 
 function drawUniqueCardIds(count) {
-  const pool = [...CARD_IDS];
+  const pool =
+    [...CARD_IDS];
 
-  for (let i = 0; i < count; i += 1) {
+  for (
+    let i = 0;
+    i < count;
+    i += 1
+  ) {
     const swapIndex =
-      i + secureRandomInt(pool.length - i);
+      i +
+      secureRandomInt(
+        pool.length - i
+      );
 
-    [pool[i], pool[swapIndex]] =
-      [pool[swapIndex], pool[i]];
+    [
+      pool[i],
+      pool[swapIndex],
+    ] = [
+      pool[swapIndex],
+      pool[i],
+    ];
   }
 
-  return pool.slice(0, count);
+  return pool.slice(
+    0,
+    count
+  );
 }
 
 function handleGetCard(url) {
-  const id = url.searchParams.get("id") || "00";
+  const id =
+    url.searchParams.get("id") ||
+    "00";
 
   if (!CARDS[id]) {
     return jsonResponse(
       {
-        error: "Card not found",
-        requested_id: id,
+        error:
+          "Card not found",
+        requested_id:
+          id,
       },
       404
     );
   }
 
-  return jsonResponse(cardToResponse(id));
+  return jsonResponse(
+    cardToResponse(id)
+  );
 }
 
 async function handleDraw(request) {
   let body;
 
   try {
-    body = await request.json();
+    body =
+      await request.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400);
-  }
-
-  if (
-    body.count !== 3 ||
-    body.orientation !== "upright" ||
-    body.unique !== true
-  ) {
     return jsonResponse(
-      { error: "Unsupported draw settings" },
-      400
+      {
+        error:
+          "Invalid JSON body",
+        expected: {
+          count: 3,
+          orientation:
+            "upright",
+          unique: true,
+        },
+      },
+      400,
+      {
+        "cache-control":
+          "no-store",
+      }
     );
   }
 
-  const selectedIds = drawUniqueCardIds(3);
+  if (
+    body === null ||
+    typeof body !==
+      "object" ||
+    Array.isArray(body) ||
+    body.count !== 3 ||
+    body.orientation !==
+      "upright" ||
+    body.unique !== true
+  ) {
+    return jsonResponse(
+      {
+        error:
+          "Unsupported draw settings",
+        expected: {
+          count: 3,
+          orientation:
+            "upright",
+          unique: true,
+        },
+      },
+      400,
+      {
+        "cache-control":
+          "no-store",
+      }
+    );
+  }
 
-  const cards = selectedIds.map((id, index) => ({
-    position: index + 1,
-    ...cardToResponse(id),
-    orientation: "upright",
-  }));
+  const selectedIds =
+    drawUniqueCardIds(3);
 
-  return jsonResponse({
-    draw_id: crypto.randomUUID(),
-    count: 3,
-    orientation: "upright",
-    unique: true,
-    cards,
-  });
+  const cards =
+    selectedIds.map(
+      (id, index) => ({
+        position:
+          index + 1,
+
+        ...cardToResponse(id),
+
+        orientation:
+          "upright",
+      })
+    );
+
+  return jsonResponse(
+    {
+      draw_id:
+        crypto.randomUUID(),
+
+      count: 3,
+
+      orientation:
+        "upright",
+
+      unique: true,
+
+      cards,
+    },
+    200,
+    {
+      "cache-control":
+        "no-store",
+    }
+  );
 }
 
 async function handleDeepDraw(request) {
-  const origin = new URL(request.url).origin;
+  const origin =
+    new URL(
+      request.url
+    ).origin;
 
   let body;
 
   try {
-    body = await request.json();
+    body =
+      await request.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400);
-  }
-
-  if (
-    body.count !== 7 ||
-    body.orientation !== "upright" ||
-    body.unique !== true
-  ) {
     return jsonResponse(
-      { error: "Unsupported deep draw settings" },
-      400
+      {
+        error:
+          "Invalid JSON body",
+        expected: {
+          count: 7,
+          orientation:
+            "upright",
+          unique: true,
+        },
+      },
+      400,
+      {
+        "cache-control":
+          "no-store",
+      }
     );
   }
 
-  const selectedIds = drawUniqueCardIds(7);
+  if (
+    body === null ||
+    typeof body !==
+      "object" ||
+    Array.isArray(body) ||
+    body.count !== 7 ||
+    body.orientation !==
+      "upright" ||
+    body.unique !== true
+  ) {
+    return jsonResponse(
+      {
+        error:
+          "Unsupported deep draw settings",
+        expected: {
+          count: 7,
+          orientation:
+            "upright",
+          unique: true,
+        },
+      },
+      400,
+      {
+        "cache-control":
+          "no-store",
+      }
+    );
+  }
 
-  const cards = selectedIds.map((id, index) => ({
-    position: index + 1,
-    role: DEEP_ROLES[index],
-    ...cardToResponse(id),
-    orientation: "upright",
-    reveal_url:
-      `${origin}/reveal?card=${encodeURIComponent(id)}&position=${index + 1}`,
-  }));
+  const selectedIds =
+    drawUniqueCardIds(7);
 
-  return jsonResponse({
-    draw_id: crypto.randomUUID(),
-    mode: "deep",
-    count: 7,
-    orientation: "upright",
-    unique: true,
+  const cards =
+    selectedIds.map(
+      (id, index) => ({
+        position:
+          index + 1,
 
-    video: {
-      first_card_url:
-        `${origin}/media/first-card.mp4`,
+        role:
+          DEEP_ROLES[index],
 
-      draw_card_url:
-        `${origin}/media/next-card.mp4`,
+        ...cardToResponse(id),
 
-      playback_rule:
-        "position 1: first_card_url then draw_card_url; positions 2-7: draw_card_url only",
+        orientation:
+          "upright",
+
+        reveal_url:
+          `${origin}/reveal?card=${encodeURIComponent(
+            id
+          )}&position=${
+            index + 1
+          }`,
+      })
+    );
+
+  return jsonResponse(
+    {
+      draw_id:
+        crypto.randomUUID(),
+
+      mode:
+        "deep",
+
+      count:
+        7,
+
+      orientation:
+        "upright",
+
+      unique:
+        true,
+
+      video: {
+        first_card_url:
+          `${origin}/media/first-card.mp4`,
+
+        draw_card_url:
+          `${origin}/media/next-card.mp4`,
+
+        playback_rule:
+          "position 1: first_card_url then draw_card_url; positions 2-7: draw_card_url only",
+      },
+
+      cards,
     },
-
-    cards,
-  });
+    200,
+    {
+      "cache-control":
+        "no-store",
+    }
+  );
 }
 
 export default {
   async fetch(request) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: CORS_HEADERS,
-      });
-    }
-
-    const url = new URL(request.url);
-
-    const pathname =
-      url.pathname.replace(/\/+$/, "") || "/";
 
     if (
-      pathname === "/reveal" &&
-      request.method === "GET"
+      request.method ===
+      "OPTIONS"
     ) {
-      return revealPageResponse(url);
+      return new Response(
+        null,
+        {
+          status: 204,
+          headers:
+            CORS_HEADERS,
+        }
+      );
+    }
+
+    const url =
+      new URL(
+        request.url
+      );
+
+    const pathname =
+      url.pathname.replace(
+        /\/+$/,
+        ""
+      ) || "/";
+
+    if (
+      pathname ===
+        "/privacy" &&
+      (
+        request.method ===
+          "GET" ||
+        request.method ===
+          "HEAD"
+      )
+    ) {
+      return privacyPolicyResponse(
+        request.method ===
+          "HEAD"
+      );
+    }
+
+    if (
+      pathname ===
+        "/reveal" &&
+      request.method ===
+        "GET"
+    ) {
+      return revealPageResponse(
+        url
+      );
     }
 
     if (
       (
-        pathname === "/media/first-card.mp4" ||
-        pathname === "/media/next-card.mp4"
+        pathname ===
+          "/media/first-card.mp4" ||
+        pathname ===
+          "/media/next-card.mp4"
       ) &&
-      request.method === "GET"
+      request.method ===
+        "GET"
     ) {
-      return handleMedia(pathname);
+      return handleMedia(
+        pathname,
+        request
+      );
     }
 
     if (
       pathname === "/" &&
-      request.method === "GET"
+      request.method ===
+        "GET"
     ) {
-      return handleGetCard(url);
+      return handleGetCard(
+        url
+      );
     }
 
     if (
-      pathname === "/draw" &&
-      request.method === "POST"
+      pathname ===
+        "/draw" &&
+      request.method ===
+        "POST"
     ) {
-      return handleDraw(request);
+      return handleDraw(
+        request
+      );
     }
 
     if (
-      pathname === "/draw/deep" &&
-      request.method === "POST"
+      pathname ===
+        "/draw/deep" &&
+      request.method ===
+        "POST"
     ) {
-      return handleDeepDraw(request);
+      return handleDeepDraw(
+        request
+      );
+    }
+
+    if (
+      pathname === "/" ||
+      pathname ===
+        "/draw" ||
+      pathname ===
+        "/draw/deep" ||
+      pathname ===
+        "/privacy" ||
+      pathname ===
+        "/reveal" ||
+      pathname ===
+        "/media/first-card.mp4" ||
+      pathname ===
+        "/media/next-card.mp4"
+    ) {
+      let allow =
+        "POST, OPTIONS";
+
+      if (
+        pathname === "/"
+      ) {
+        allow =
+          "GET, OPTIONS";
+      }
+
+      if (
+        pathname ===
+          "/privacy"
+      ) {
+        allow =
+          "GET, HEAD, OPTIONS";
+      }
+
+      if (
+        pathname ===
+          "/reveal" ||
+        pathname.startsWith(
+          "/media/"
+        )
+      ) {
+        allow =
+          "GET, OPTIONS";
+      }
+
+      return jsonResponse(
+        {
+          error:
+            "Method not allowed",
+        },
+        405,
+        {
+          allow,
+        }
+      );
     }
 
     return jsonResponse(
-      { error: "Not found" },
+      {
+        error:
+          "Not found",
+      },
       404
     );
   },
 };
-
