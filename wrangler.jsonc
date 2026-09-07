@@ -1,5 +1,5 @@
 {
   "name": "tokiyomi-tarot-api",
   "main": "worker.js",
-  "compatibility_date": "2026-09-08"
+  "compatibility_date": "2026-09-07"
 }
