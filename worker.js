@@ -647,52 +647,9 @@ function handleGetCard(url) {
   return jsonResponse(cardToResponse(id));
 }
 
-async function handleDraw(request) {
-  let body;
-
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse(
-      {
-        error: "Invalid JSON body",
-        expected: {
-          count: 3,
-          orientation: "upright",
-          unique: true,
-        },
-      },
-      400,
-      {
-        "cache-control": "no-store",
-      }
-    );
-  }
-
-  if (
-    body === null ||
-    typeof body !== "object" ||
-    Array.isArray(body) ||
-    body.count !== 3 ||
-    body.orientation !== "upright" ||
-    body.unique !== true
-  ) {
-    return jsonResponse(
-      {
-        error: "Unsupported draw settings",
-        expected: {
-          count: 3,
-          orientation: "upright",
-          unique: true,
-        },
-      },
-      400,
-      {
-        "cache-control": "no-store",
-      }
-    );
-  }
-
+async function handleDraw() {
+  // 体験版はAPI側で3枚・正位置・重複なしに固定する。
+  // GPT Actionsからリクエスト本文が省略されても安全に動作する。
   const selectedIds = drawUniqueCardIds(3);
 
   const cards = selectedIds.map(
@@ -719,53 +676,10 @@ async function handleDraw(request) {
 }
 
 async function handleDeepDraw(request) {
+  // 深読み版はAPI側で7枚・正逆ランダム・重複なしに固定する。
+  // GPT Actionsからリクエスト本文が省略されても安全に動作する。
   const origin =
     new URL(request.url).origin;
-
-  let body;
-
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse(
-      {
-        error: "Invalid JSON body",
-        expected: {
-          count: 7,
-          orientation: "random",
-          unique: true,
-        },
-      },
-      400,
-      {
-        "cache-control": "no-store",
-      }
-    );
-  }
-
-  if (
-    body === null ||
-    typeof body !== "object" ||
-    Array.isArray(body) ||
-    body.count !== 7 ||
-    body.orientation !== "random" ||
-    body.unique !== true
-  ) {
-    return jsonResponse(
-      {
-        error: "Unsupported deep draw settings",
-        expected: {
-          count: 7,
-          orientation: "random",
-          unique: true,
-        },
-      },
-      400,
-      {
-        "cache-control": "no-store",
-      }
-    );
-  }
 
   const selectedIds =
     drawUniqueCardIds(7);
