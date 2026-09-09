@@ -77,13 +77,13 @@ const CARDS = buildCards();
 const CARD_IDS = Object.freeze(Object.keys(CARDS));
 
 const DEEP_ROLES = Object.freeze([
-  "現在地",
-  "Aの初動",
-  "Aの展開",
-  "Aの到達傾向",
-  "Bの初動",
-  "Bの展開",
-  "Bの到達傾向",
+  "今のあなた",
+  "心の奥にある本音",
+  "今のあなたを支えているもの",
+  "今のブレーキ",
+  "避けたい未来・アンチビジョン",
+  "望む未来",
+  "未来を選ぶための次の一手",
 ]);
 
 const CORS_HEADERS = {
@@ -139,7 +139,7 @@ const PRIVACY_POLICY_HTML = `<!doctype html>
     <h2>1．本APIが受け取る情報</h2>
     <p>
       本APIは、カード抽選に必要な条件
-      （体験版は3枚、深読み版は7枚、いずれも正位置・重複なし）
+      （体験版は3枚・正位置・重複なし、深読み版は7枚・正逆ランダム・重複なし）
       のみを受け取ります。
       相談内容、氏名、メールアドレス、住所、決済情報などの個人情報を
       本APIへ送信する設計にはなっていません。
@@ -149,7 +149,7 @@ const PRIVACY_POLICY_HTML = `<!doctype html>
     <p>
       受け取った抽選条件は、78枚のタロットカードから、
       体験版では3枚、深読み版では7枚を無作為かつ重複なしで選び、
-      カード名、表示順、役割、正位置の指定およびカード画像URLを
+      カード名、表示順、役割、正逆の指定およびカード画像URLを
       返すためにのみ使用します。
     </p>
 
@@ -732,7 +732,7 @@ async function handleDeepDraw(request) {
         error: "Invalid JSON body",
         expected: {
           count: 7,
-          orientation: "upright",
+          orientation: "random",
           unique: true,
         },
       },
@@ -748,7 +748,7 @@ async function handleDeepDraw(request) {
     typeof body !== "object" ||
     Array.isArray(body) ||
     body.count !== 7 ||
-    body.orientation !== "upright" ||
+    body.orientation !== "random" ||
     body.unique !== true
   ) {
     return jsonResponse(
@@ -756,7 +756,7 @@ async function handleDeepDraw(request) {
         error: "Unsupported deep draw settings",
         expected: {
           count: 7,
-          orientation: "upright",
+          orientation: "random",
           unique: true,
         },
       },
@@ -776,7 +776,10 @@ async function handleDeepDraw(request) {
         position: index + 1,
         role: DEEP_ROLES[index],
         ...cardToResponse(id),
-        orientation: "upright",
+        orientation:
+          secureRandomInt(2) === 0
+            ? "upright"
+            : "reversed",
         reveal_url:
           `${origin}/reveal?card=${encodeURIComponent(id)}&position=${index + 1}`,
       })
@@ -787,7 +790,7 @@ async function handleDeepDraw(request) {
       draw_id: crypto.randomUUID(),
       mode: "deep",
       count: 7,
-      orientation: "upright",
+      orientation: "random",
       unique: true,
 
       video: {
