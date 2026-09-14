@@ -1,6 +1,17 @@
 const IMAGE_BASE_URL =
   "https://raw.githubusercontent.com/TOKIYOMI-jpg/TOKIYOMI-tarot/main/";
 
+const VIDEO_BASE_URL =
+  "https://raw.githubusercontent.com/TOKIYOMI-jpg/TOKIYOMI-tarot/main/";
+
+// 同名動画をGitHubで差し替えた際のキャッシュ回避用。
+// 動画を更新したときは、この文字列だけ変更すれば強制的に新しい動画を読み込みます。
+const VIDEO_VERSION = "20260915-1";
+
+function videoUrl(filename) {
+  return `${VIDEO_BASE_URL}${filename}?v=${VIDEO_VERSION}`;
+}
+
 const MAJOR_ARCANA = {
   "00": ["愚者", "The Fool", "00_The_Fool.png"],
   "01": ["魔術師", "The Magician", "01_The_Magician.png"],
@@ -163,8 +174,7 @@ const PRIVACY_POLICY_HTML = `<!doctype html>
     <h2>4．外部サービス</h2>
     <p>
       本APIの提供にはCloudflareを使用し、
-      カード画像の配信元としてGitHub、
-      カード開示動画の保存先としてCloudflare R2を使用しています。
+      カード画像およびカード開示動画の配信元としてGitHubを使用しています。
     </p>
 
     <h2>5．Cookieおよび広告</h2>
@@ -275,106 +285,7 @@ async function handleMedia(pathname, request, env) {
     return jsonResponse({ error: "Not found" }, 404);
   }
 
-  if (!env.MEDIA) {
-    return jsonResponse(
-      { error: "R2 binding MEDIA is not configured" },
-      500
-    );
-  }
-
-  const metadata = await env.MEDIA.head(filename);
-
-  if (!metadata) {
-    return jsonResponse(
-      {
-        error: "Video not found in R2",
-        filename,
-      },
-      404
-    );
-  }
-
-  const size = metadata.size;
-  const rangeHeader = request.headers.get("range");
-  const range = parseSingleRange(rangeHeader, size);
-
-  const commonHeaders = {
-    "content-type":
-      metadata.httpMetadata?.contentType || "video/mp4",
-    "accept-ranges": "bytes",
-    "cache-control": "public, max-age=3600",
-    "access-control-allow-origin": "*",
-    "access-control-expose-headers":
-      "content-length, content-range, accept-ranges, etag",
-    "content-disposition": `inline; filename="${filename}"`,
-  };
-
-  if (metadata.etag) {
-    commonHeaders.etag = metadata.etag;
-  }
-
-  if (request.method === "HEAD") {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        ...commonHeaders,
-        "content-length": String(size),
-      },
-    });
-  }
-
-  if (range?.invalid) {
-    return new Response(null, {
-      status: 416,
-      headers: {
-        ...commonHeaders,
-        "content-range": `bytes */${size}`,
-      },
-    });
-  }
-
-  if (range) {
-    const object = await env.MEDIA.get(filename, {
-      range: {
-        offset: range.start,
-        length: range.length,
-      },
-    });
-
-    if (!object || !object.body) {
-      return jsonResponse(
-        { error: "Unable to read requested video range" },
-        500
-      );
-    }
-
-    return new Response(object.body, {
-      status: 206,
-      headers: {
-        ...commonHeaders,
-        "content-length": String(range.length),
-        "content-range":
-          `bytes ${range.start}-${range.end}/${size}`,
-      },
-    });
-  }
-
-  const object = await env.MEDIA.get(filename);
-
-  if (!object || !object.body) {
-    return jsonResponse(
-      { error: "Unable to read video" },
-      500
-    );
-  }
-
-  return new Response(object.body, {
-    status: 200,
-    headers: {
-      ...commonHeaders,
-      "content-length": String(size),
-    },
-  });
+  return Response.redirect(videoUrl(filename), 302);
 }
 
 function revealPageResponse(url) {
@@ -450,12 +361,27 @@ video,.card{
 }
 .card{
   display:none;
-  opacity:0;
-  transition:opacity .8s ease
+  position:absolute;
+  left:50%;
+  top:0;
+  width:auto;
+  height:100%;
+  max-width:none;
+  object-fit:contain;
+  background:transparent;
+  transform-origin:left center;
+  opacity:1;
+}
+.card.turning{
+  display:block;
 }
 .card.show{
   display:block;
-  opacity:1
+  transform:translateX(-50%);
+}
+.stage video{
+  position:absolute;
+  inset:0;
 }
 .status{
   margin-top:12px;
@@ -521,9 +447,38 @@ const start=document.getElementById("start");
 function reveal(){
   video.pause();
   video.style.display="none";
-  card.classList.add("show");
-  status.textContent=${JSON.stringify(`${position}枚目「${card[0]}」`)};
   start.hidden=true;
+
+  card.classList.remove("show");
+  card.classList.add("turning");
+
+  const duration=1350;
+  const started=performance.now();
+
+  function frame(now){
+    const t=Math.min(1,(now-started)/duration);
+    const e=t*t*(3-2*t);
+    const widthRatio=0.035+0.965*Math.sin(e*Math.PI/2);
+    const rightScale=0.72+0.28*e;
+
+    const inset=((1-rightScale)*50).toFixed(3);
+    card.style.transform=
+      `translateX(-50%) scaleX(${widthRatio.toFixed(5)})`;
+    card.style.clipPath=
+      `polygon(0 0,100% ${inset}%,100% ${100-inset}%,0 100%)`;
+
+    if(t<1){
+      requestAnimationFrame(frame);
+    }else{
+      card.classList.remove("turning");
+      card.classList.add("show");
+      card.style.transform="translateX(-50%) scaleX(1)";
+      card.style.clipPath="none";
+      status.textContent=${JSON.stringify(`${position}枚目「${card[0]}」`)};
+    }
+  }
+
+  requestAnimationFrame(frame);
 }
 
 function playCurrent(){
@@ -648,8 +603,6 @@ function handleGetCard(url) {
 }
 
 async function handleDraw() {
-  // 体験版はAPI側で3枚・正位置・重複なしに固定する。
-  // GPT Actionsからリクエスト本文が省略されても安全に動作する。
   const selectedIds = drawUniqueCardIds(3);
 
   const cards = selectedIds.map(
@@ -676,8 +629,6 @@ async function handleDraw() {
 }
 
 async function handleDeepDraw(request) {
-  // 深読み版はAPI側で7枚・正逆ランダム・重複なしに固定する。
-  // GPT Actionsからリクエスト本文が省略されても安全に動作する。
   const origin =
     new URL(request.url).origin;
 
