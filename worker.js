@@ -97,6 +97,18 @@ const DEEP_ROLES = Object.freeze([
   "未来を選ぶための次の一手",
 ]);
 
+const COMPANION_ROLES = Object.freeze([
+  "前回からの変化",
+  "今、見えにくくなっていること",
+  "次回までの一手",
+]);
+
+const COMPANION_FINAL_ROLES = Object.freeze([
+  "伴走前から変わったこと",
+  "これから大切にする自分の軸",
+  "明日へ残す次の一手",
+]);
+
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, HEAD, OPTIONS",
@@ -678,6 +690,59 @@ async function handleDeepDraw(request) {
   );
 }
 
+async function handleCompanionDraw(request, isFinal = false) {
+  const origin =
+    new URL(request.url).origin;
+
+  const roles =
+    isFinal ? COMPANION_FINAL_ROLES : COMPANION_ROLES;
+
+  const selectedIds =
+    drawUniqueCardIds(3);
+
+  const cards =
+    selectedIds.map(
+      (id, index) => ({
+        position: index + 1,
+        role: roles[index],
+        ...cardToResponse(id),
+        orientation:
+          secureRandomInt(2) === 0
+            ? "upright"
+            : "reversed",
+        reveal_url:
+          `${origin}/reveal?card=${encodeURIComponent(id)}&position=${index + 1}`,
+      })
+    );
+
+  return jsonResponse(
+    {
+      draw_id: crypto.randomUUID(),
+      mode: isFinal ? "companion_final" : "companion",
+      count: 3,
+      orientation: "random",
+      unique: true,
+
+      video: {
+        first_card_url:
+          `${origin}/media/first-card.mp4`,
+
+        draw_card_url:
+          `${origin}/media/next-card.mp4`,
+
+        playback_rule:
+          "each session position 1: first_card_url then draw_card_url; positions 2-3: draw_card_url only",
+      },
+
+      cards,
+    },
+    200,
+    {
+      "cache-control": "no-store",
+    }
+  );
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -748,6 +813,20 @@ export default {
       request.method === "POST"
     ) {
       return handleDeepDraw(request);
+    }
+
+    if (
+      pathname === "/draw/companion" &&
+      request.method === "POST"
+    ) {
+      return handleCompanionDraw(request, false);
+    }
+
+    if (
+      pathname === "/draw/companion/final" &&
+      request.method === "POST"
+    ) {
+      return handleCompanionDraw(request, true);
     }
 
     return jsonResponse(
